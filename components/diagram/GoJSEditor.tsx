@@ -361,11 +361,11 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
     return () => {
       try {
         if (myDiagramRef.current) {
-          myDiagramRef.current.div = null
+          myDiagramRef.current.clear()
           myDiagramRef.current = null
         }
       } catch {
-        // Ignored if DOM container was already unmounted
+        // Safe unmount without DOM collision
       }
     }
   }, [])
