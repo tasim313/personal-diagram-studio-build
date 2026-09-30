@@ -9,6 +9,8 @@ import {
   Trash2,
   X,
   Columns,
+  Edit2,
+  Check,
 } from 'lucide-react'
 
 interface GoJSEditorProps {
@@ -82,6 +84,11 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
   const [newFieldName, setNewFieldName] = useState('')
   const [newFieldIsKey, setNewFieldIsKey] = useState(false)
 
+  // Column editing state
+  const [editingColumnOldName, setEditingColumnOldName] = useState<string | null>(null)
+  const [editingColumnNewName, setEditingColumnNewName] = useState('')
+  const [editingColumnIsKey, setEditingColumnIsKey] = useState(false)
+
   // Relationship Manager Modal
   const [isRelationshipManagerOpen, setIsRelationshipManagerOpen] = useState(false)
   const [linkFrom, setLinkFrom] = useState('')
@@ -132,6 +139,7 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
     } else {
       setTableColumns([])
     }
+    setEditingColumnOldName(null)
   }
 
   useEffect(() => {
@@ -142,6 +150,8 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
     const myDiagram = new go.Diagram(diagramRef.current, {
       'undoManager.isEnabled': true,
       'animationManager.isEnabled': false,
+      allowMove: true,
+      allowDragOut: false,
       model: new go.GraphLinksModel({
         linkKeyProperty: 'key',
       }),
@@ -153,7 +163,7 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
       syncModelChange()
     }
 
-    // Item template for attributes
+    // Item template for attributes (double click to edit text directly on canvas!)
     const itemTemplate = $(
       go.Panel,
       'Horizontal',
@@ -165,31 +175,38 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
       ),
       $(
         go.TextBlock,
-        { font: '11px sans-serif', stroke: '#334155' },
-        new go.Binding('text', 'name'),
+        {
+          font: '11px sans-serif',
+          stroke: '#334155',
+          editable: true, // In-place double-click rename column
+        },
+        new go.Binding('text', 'name').makeTwoWay(),
         new go.Binding('font', 'iskey', (k) => (k ? 'bold 11px sans-serif' : '11px sans-serif'))
       )
     )
 
-    // Node template
+    // Node template: fully movable, draggable anywhere on the canvas
     myDiagram.nodeTemplate = $(
       go.Node,
       'Auto',
+      {
+        movable: true,
+        selectionAdorned: true,
+        locationSpot: go.Spot.Center,
+        cursor: 'grab',
+      },
       new go.Binding('location', 'loc', go.Point.parse).makeTwoWay(go.Point.stringify),
       $(go.Shape, 'RoundedRectangle', {
         fill: '#ffffff',
         stroke: '#cbd5e1',
         strokeWidth: 2,
-        portId: '',
-        cursor: 'pointer',
-        fromLinkable: true,
-        toLinkable: true,
+        // Notice: No portId or fromLinkable on the entire background so dragging always moves the table!
       }),
       $(
         go.Panel,
         'Table',
         { margin: 10, minSize: new go.Size(140, NaN) },
-        // Header
+        // Header (double click to rename table directly!)
         $(
           go.TextBlock,
           {
@@ -200,8 +217,9 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
             font: 'bold 13px sans-serif',
             stroke: '#0f172a',
             margin: new go.Margin(0, 0, 8, 0),
+            editable: true,
           },
-          new go.Binding('text', 'key')
+          new go.Binding('text', 'key').makeTwoWay()
         ),
         // Attributes list
         $(
@@ -233,8 +251,9 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
           font: 'bold 10px sans-serif',
           stroke: '#475569',
           background: '#ffffff',
+          editable: true, // In-place double-click rename cardinality
         },
-        new go.Binding('text', 'text')
+        new go.Binding('text', 'text').makeTwoWay()
       )
     )
 
@@ -295,7 +314,7 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
       }
     })
 
-    // Listen to changes
+    // Listen to changes (dragging nodes, editing text, etc.)
     myDiagram.addModelChangedListener((e) => {
       if (e.isTransactionFinished) {
         syncModelChange()
@@ -382,7 +401,44 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
     syncModelChange()
   }
 
-  // 3. DELETE SPECIFIC COLUMN FROM TABLE
+  // 3. MODIFY / RENAME COLUMN
+  const handleStartEditColumn = (col: { name: string; iskey: boolean }) => {
+    setEditingColumnOldName(col.name)
+    setEditingColumnNewName(col.name)
+    setEditingColumnIsKey(col.iskey)
+  }
+
+  const handleSaveEditColumn = () => {
+    if (!editingColumnOldName || !editingColumnNewName.trim() || !myDiagramRef.current) return
+    const targetKey = targetTableForColumns || selectedTableKey
+    const myDiagram = myDiagramRef.current
+    const targetNode = myDiagram.findNodeForKey(targetKey)
+
+    if (targetNode && targetNode.data) {
+      myDiagram.startTransaction('modify column')
+      const existingItems = Array.isArray(targetNode.data.items) ? targetNode.data.items : []
+      const updatedItems = existingItems.map((col: { name: string; iskey: boolean; color?: string; figure?: string }) => {
+        if (col.name === editingColumnOldName) {
+          return {
+            ...col,
+            name: editingColumnNewName.trim(),
+            iskey: editingColumnIsKey,
+            figure: editingColumnIsKey ? 'Decision' : 'Cube1',
+            color: editingColumnIsKey ? '#ef4444' : '#3b82f6',
+          }
+        }
+        return col
+      })
+      myDiagram.model.setDataProperty(targetNode.data, 'items', updatedItems)
+      myDiagram.commitTransaction('modify column')
+      setTableColumns(updatedItems)
+    }
+
+    setEditingColumnOldName(null)
+    syncModelChange()
+  }
+
+  // 4. DELETE SPECIFIC COLUMN FROM TABLE
   const handleDeleteColumn = (colName: string) => {
     const targetKey = targetTableForColumns || selectedTableKey
     if (!targetKey || !myDiagramRef.current) return
@@ -402,7 +458,7 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
     syncModelChange()
   }
 
-  // 4. ADD RELATIONSHIP BETWEEN TABLES
+  // 5. ADD RELATIONSHIP BETWEEN TABLES
   const handleAddLink = (e: React.FormEvent) => {
     e.preventDefault()
     if (!linkFrom || !linkTo || !myDiagramRef.current) return
@@ -422,7 +478,24 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
     syncModelChange()
   }
 
-  // 5. DELETE SPECIFIC RELATIONSHIP
+  // 6. MODIFY RELATIONSHIP CARDINALITY
+  const handleUpdateLinkType = (from: string, to: string, newText: string) => {
+    if (!myDiagramRef.current) return
+    const myDiagram = myDiagramRef.current
+    const model = myDiagram.model as go.GraphLinksModel
+    const links = model.linkDataArray as { from?: string; to?: string; text?: string }[]
+    const targetLink = links.find((l) => l.from === from && l.to === to)
+
+    if (targetLink) {
+      myDiagram.startTransaction('update relationship')
+      model.setDataProperty(targetLink, 'text', newText)
+      myDiagram.commitTransaction('update relationship')
+    }
+
+    syncModelChange()
+  }
+
+  // 7. DELETE SPECIFIC RELATIONSHIP
   const handleDeleteLink = (from: string, to: string) => {
     if (!myDiagramRef.current) return
     const myDiagram = myDiagramRef.current
@@ -441,7 +514,7 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
     syncModelChange()
   }
 
-  // 6. DELETE TABLE
+  // 8. DELETE TABLE
   const handleDeleteTable = (keyToDelete?: string) => {
     if (!myDiagramRef.current) return
     const myDiagram = myDiagramRef.current
@@ -458,7 +531,7 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
     syncModelChange()
   }
 
-  // 7. DELETE WHATEVER IS CURRENTLY SELECTED
+  // 9. DELETE WHATEVER IS CURRENTLY SELECTED
   const handleDeleteSelected = () => {
     if (!myDiagramRef.current) return
     const myDiagram = myDiagramRef.current
@@ -515,7 +588,7 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
             setIsColumnManagerOpen(true)
           }}
           className="flex items-center gap-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-2.5 py-1.5 text-xs font-semibold transition cursor-pointer border border-emerald-200"
-          title="Add or delete columns in a specific table"
+          title="Add, rename, or delete columns in a specific table"
         >
           <Columns className="size-3.5" />
           <span>Columns &amp; Fields</span>
@@ -532,7 +605,7 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
             setIsRelationshipManagerOpen(true)
           }}
           className="flex items-center gap-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-700 px-2.5 py-1.5 text-xs font-semibold transition cursor-pointer border border-purple-200"
-          title="Manage & delete relationships between tables"
+          title="Manage, edit cardinality, or delete relationships"
         >
           <LinkIcon className="size-3.5" />
           <span>Relationships ({availableLinks.length})</span>
@@ -608,7 +681,7 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
         </div>
       )}
 
-      {/* ── MODAL 2: Column & Field Manager (Add & Delete specific columns) ─── */}
+      {/* ── MODAL 2: Column & Field Manager (Add, Rename & Delete specific columns) ─── */}
       {isColumnManagerOpen && (
         <div className="absolute top-16 left-12 z-30 w-96 bg-white/95 backdrop-blur-md rounded-2xl border border-gray-200 shadow-2xl p-5 animate-in fade-in zoom-in-95">
           <div className="flex items-center justify-between pb-2 border-b border-gray-100 mb-3">
@@ -646,44 +719,98 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
               </select>
             </div>
 
-            {/* List of Current Columns with Delete button for each */}
+            {/* List of Current Columns with Rename and Delete */}
             <div>
               <span className="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">
                 Current Columns in {targetTableForColumns} ({tableColumns.length}):
               </span>
-              <div className="max-h-36 overflow-y-auto space-y-1 rounded-xl border border-gray-200 bg-gray-50/60 p-2">
+              <div className="max-h-48 overflow-y-auto space-y-1.5 rounded-xl border border-gray-200 bg-gray-50/60 p-2">
                 {tableColumns.length === 0 ? (
                   <p className="text-xs text-gray-400 text-center py-2">No columns in this table</p>
                 ) : (
-                  tableColumns.map((col) => (
-                    <div
-                      key={col.name}
-                      className="flex items-center justify-between bg-white px-2.5 py-1.5 rounded-lg border border-gray-100 shadow-2xs text-xs"
-                    >
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <span
-                          className={`size-2 rounded-full ${
-                            col.iskey ? 'bg-red-500' : 'bg-blue-500'
-                          }`}
-                        />
-                        <span className="font-semibold text-gray-800 truncate">{col.name}</span>
-                        {col.iskey && (
-                          <span className="text-[9px] font-bold text-red-600 bg-red-50 border border-red-200 px-1 py-0.2 rounded">
-                            PK
-                          </span>
+                  tableColumns.map((col) => {
+                    const isEditing = editingColumnOldName === col.name
+
+                    return (
+                      <div
+                        key={col.name}
+                        className="bg-white p-2 rounded-lg border border-gray-100 shadow-2xs text-xs"
+                      >
+                        {isEditing ? (
+                          <div className="flex flex-col gap-2">
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                type="text"
+                                autoFocus
+                                value={editingColumnNewName}
+                                onChange={(e) => setEditingColumnNewName(e.target.value)}
+                                className="flex-1 rounded border border-gray-300 px-2 py-1 text-xs text-gray-900"
+                              />
+                              <button
+                                type="button"
+                                onClick={handleSaveEditColumn}
+                                className="rounded bg-emerald-600 text-white p-1 hover:bg-emerald-700 cursor-pointer"
+                                title="Save Column Name"
+                              >
+                                <Check className="size-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setEditingColumnOldName(null)}
+                                className="rounded bg-gray-100 text-gray-600 p-1 hover:bg-gray-200 cursor-pointer"
+                                title="Cancel"
+                              >
+                                <X className="size-3.5" />
+                              </button>
+                            </div>
+                            <label className="flex items-center gap-1.5 text-[11px] text-gray-600">
+                              <input
+                                type="checkbox"
+                                checked={editingColumnIsKey}
+                                onChange={(e) => setEditingColumnIsKey(e.target.checked)}
+                              />
+                              <span>Primary Key (PK)</span>
+                            </label>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span
+                                className={`size-2 rounded-full ${
+                                  col.iskey ? 'bg-red-500' : 'bg-blue-500'
+                                }`}
+                              />
+                              <span className="font-semibold text-gray-800 truncate">{col.name}</span>
+                              {col.iskey && (
+                                <span className="text-[9px] font-bold text-red-600 bg-red-50 border border-red-200 px-1 py-0.2 rounded">
+                                  PK
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleStartEditColumn(col)}
+                                className="text-gray-400 hover:text-gray-700 hover:bg-gray-100 p-1 rounded transition cursor-pointer"
+                                title="Rename column"
+                              >
+                                <Edit2 className="size-3" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteColumn(col.name)}
+                                className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1 rounded transition cursor-pointer"
+                                title={`Delete column "${col.name}"`}
+                              >
+                                <Trash2 className="size-3" />
+                              </button>
+                            </div>
+                          </div>
                         )}
                       </div>
-
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteColumn(col.name)}
-                        className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1 rounded transition cursor-pointer"
-                        title={`Delete column "${col.name}" from ${targetTableForColumns}`}
-                      >
-                        <Trash2 className="size-3" />
-                      </button>
-                    </div>
-                  ))
+                    )
+                  })
                 )}
               </div>
             </div>
@@ -726,7 +853,7 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
         </div>
       )}
 
-      {/* ── MODAL 3: Relationship Manager (Add & Delete specific relationships) ── */}
+      {/* ── MODAL 3: Relationship Manager (Add, Modify Cardinality & Delete) ── */}
       {isRelationshipManagerOpen && (
         <div className="absolute top-16 left-36 z-30 w-96 bg-white/95 backdrop-blur-md rounded-2xl border border-gray-200 shadow-2xl p-5 animate-in fade-in zoom-in-95">
           <div className="flex items-center justify-between pb-2 border-b border-gray-100 mb-3">
@@ -743,26 +870,35 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
           </div>
 
           <div className="space-y-4">
-            {/* List of Active Relationships with Delete button */}
+            {/* List of Active Relationships with Cardinality modifier & Delete */}
             <div>
               <span className="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">
                 Existing Relationships ({availableLinks.length}):
               </span>
-              <div className="max-h-36 overflow-y-auto space-y-1.5 rounded-xl border border-gray-200 bg-gray-50/60 p-2">
+              <div className="max-h-40 overflow-y-auto space-y-2 rounded-xl border border-gray-200 bg-gray-50/60 p-2">
                 {availableLinks.length === 0 ? (
                   <p className="text-xs text-gray-400 text-center py-2">No relationships connecting tables</p>
                 ) : (
                   availableLinks.map((link, idx) => (
                     <div
                       key={`${link.from}-${link.to}-${idx}`}
-                      className="flex items-center justify-between bg-white px-2.5 py-1.5 rounded-lg border border-gray-100 shadow-2xs text-xs"
+                      className="flex items-center justify-between bg-white px-2.5 py-2 rounded-lg border border-gray-100 shadow-2xs text-xs"
                     >
                       <div className="flex items-center gap-1.5 font-semibold text-gray-800">
                         <span className="text-blue-600">{link.from}</span>
                         <span className="text-gray-400">──</span>
-                        <span className="text-[10px] font-bold text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-100">
-                          {link.text || 'relates'}
-                        </span>
+
+                        {/* Cardinality Selector */}
+                        <select
+                          value={link.text || '1 : N'}
+                          onChange={(e) => handleUpdateLinkType(link.from, link.to, e.target.value)}
+                          className="text-[10px] font-bold text-purple-700 bg-purple-50 border border-purple-200 rounded px-1 py-0.5 cursor-pointer"
+                        >
+                          <option value="1 : N">1 : N</option>
+                          <option value="1 : 1">1 : 1</option>
+                          <option value="N : M">N : M</option>
+                        </select>
+
                         <span className="text-gray-400">──&gt;</span>
                         <span className="text-emerald-600">{link.to}</span>
                       </div>
@@ -868,7 +1004,7 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
               >
                 {availableTables.map((t) => (
                   <option key={t} value={t}>
-                    Delete: {t}
+                    Delete Table: {t}
                   </option>
                 ))}
               </select>
