@@ -6,7 +6,7 @@ const DB_VERSION = 1
 const STORE_PROJECTS = 'projects'
 const STORE_DIAGRAMS = 'diagrams'
 
-function generateUUID(): string {
+export function generateUUID(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID()
   }
