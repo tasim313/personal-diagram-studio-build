@@ -13,7 +13,9 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
+    "@dagrejs/dagre": "^3.1.1",
     "@excalidraw/excalidraw": "^0.18.1",
+    "@types/dagre": "^0.7.54",
     "@vercel/analytics": "1.6.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
