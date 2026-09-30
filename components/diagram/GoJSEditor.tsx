@@ -11,7 +11,10 @@ import {
   Columns,
   Edit2,
   Check,
+  FileCode,
 } from 'lucide-react'
+import { SqlModal } from './sql/SqlModal'
+import type { ErdTableNode, ErdLink } from './sql/sqlParser'
 
 interface GoJSEditorProps {
   initialData?: {
@@ -98,6 +101,36 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
   // Delete Table Modal
   const [isDeleteTableOpen, setIsDeleteTableOpen] = useState(false)
   const [tableToDelete, setTableToDelete] = useState('USERS')
+
+  // SQL DDL / Schema Modal
+  const [isSqlModalOpen, setIsSqlModalOpen] = useState(false)
+
+  const handleImportErd = ({ nodes, links }: { nodes: ErdTableNode[]; links: ErdLink[] }) => {
+    if (!myDiagramRef.current) return
+    const myDiagram = myDiagramRef.current
+    const model = myDiagram.model as go.GraphLinksModel
+
+    myDiagram.startTransaction('import sql')
+    nodes.forEach((n) => {
+      const existing = model.findNodeDataForKey(n.key)
+      if (existing) {
+        model.set(existing, 'items', n.items)
+      } else {
+        model.addNodeData({
+          key: n.key,
+          items: n.items,
+          loc: `${Math.floor(Math.random() * 300 + 80)} ${Math.floor(Math.random() * 200 + 60)}`,
+        })
+      }
+    })
+
+    links.forEach((l) => {
+      model.addLinkData(l)
+    })
+
+    myDiagram.commitTransaction('import sql')
+    syncModelChange()
+  }
 
   // Helper to extract clean state and notify parent
   const syncModelChange = () => {
@@ -611,6 +644,17 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
           <span>Relationships ({availableLinks.length})</span>
         </button>
 
+        {/* 4. SQL Tools (Import / Export DDL) */}
+        <button
+          type="button"
+          onClick={() => setIsSqlModalOpen(true)}
+          className="flex items-center gap-1.5 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-700 px-2.5 py-1.5 text-xs font-semibold transition cursor-pointer border border-sky-200"
+          title="Export SQL DDL, Import SQL tables, or run schema validation"
+        >
+          <FileCode className="size-3.5" />
+          <span>SQL &amp; DDL</span>
+        </button>
+
         {/* 4. Delete Table / Selected */}
         <button
           type="button"
@@ -1033,6 +1077,20 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
           </div>
         </div>
       )}
+
+      {/* ── MODAL 5: SQL Import / Export / Validate ───────────── */}
+      <SqlModal
+        isOpen={isSqlModalOpen}
+        onClose={() => setIsSqlModalOpen(false)}
+        tables={
+          ((myDiagramRef.current?.model as go.GraphLinksModel)?.nodeDataArray as ErdTableNode[]) ||
+          []
+        }
+        links={
+          ((myDiagramRef.current?.model as go.GraphLinksModel)?.linkDataArray as ErdLink[]) || []
+        }
+        onImportErd={handleImportErd}
+      />
 
       {/* ── GoJS Canvas ────────────────────────────────────────── */}
       <div ref={diagramRef} className="w-full h-full" />

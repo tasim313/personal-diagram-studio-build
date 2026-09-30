@@ -14,12 +14,20 @@ import {
   FolderOpen,
   Check,
   ChevronRight,
+  Download,
+  Play,
+  History,
+  Command,
 } from 'lucide-react'
 import type { AppState, BinaryFiles } from '@excalidraw/excalidraw/types'
 import type { ExcalidrawElement } from '@excalidraw/excalidraw/element/types'
 import type { Node, Edge } from 'reactflow'
 import type { DiagramEngineType, DiagramItem, DiagramTypeDefinition, ProjectType, StudioProject } from '@/lib/diagram/types'
 import { DIAGRAM_CATALOG, ENGINE_CAPABILITIES } from '@/lib/diagram/types'
+import { CommandPalette } from '@/components/diagram/command/CommandPalette'
+import { PresentationMode } from '@/components/diagram/presentation/PresentationMode'
+import { ExportModal } from '@/components/diagram/export/ExportModal'
+import { VersionHistoryModal } from '@/components/diagram/versioning/VersionHistoryModal'
 import {
   createNewDiagram,
   createNewProject,
@@ -95,6 +103,10 @@ export default function WorkspacePage() {
   const [isDiagramDropdownOpen, setIsDiagramDropdownOpen] = useState(false)
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false)
   const [isCreateProjectModalOpen, setIsCreateProjectModalOpen] = useState(false)
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false)
+  const [isPresentationOpen, setIsPresentationOpen] = useState(false)
+  const [isExportOpen, setIsExportOpen] = useState(false)
+  const [isVersionModalOpen, setIsVersionModalOpen] = useState(false)
   const [quickCategory, setQuickCategory] = useState<string>('popular')
   const [quickSearch, setQuickSearch] = useState<string>('')
 
@@ -588,6 +600,32 @@ export default function WorkspacePage() {
 
         {/* Right Toolbar Actions */}
         <div className="flex items-center gap-2">
+          {/* Command Palette Trigger */}
+          <button
+            type="button"
+            onClick={() => setIsCommandPaletteOpen(true)}
+            className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50/80 hover:bg-gray-100 px-2.5 py-1.5 text-xs text-gray-600 transition cursor-pointer"
+            title="Open Command Palette (Cmd/Ctrl + K)"
+          >
+            <Command className="size-3.5 text-gray-500" />
+            <span className="hidden md:inline font-medium">Search...</span>
+            <kbd className="hidden md:inline rounded bg-white border border-gray-200 px-1 py-0.2 text-[10px] font-mono text-gray-400">
+              ⌘K
+            </kbd>
+          </button>
+
+          {/* Presentation Mode */}
+          <button
+            type="button"
+            onClick={() => setIsPresentationOpen(true)}
+            disabled={diagrams.length === 0}
+            className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition cursor-pointer"
+            title="Present Project Slides (Fullscreen)"
+          >
+            <Play className="size-3.5 fill-gray-700" />
+            <span className="hidden sm:inline">Present</span>
+          </button>
+
           {/* View Toggle */}
           <button
             type="button"
@@ -600,7 +638,7 @@ export default function WorkspacePage() {
           >
             <LayoutGrid className="size-3.5" />
             <span className="hidden sm:inline">
-              {view === 'library' ? 'Project Overview' : 'All Diagrams'}
+              {view === 'library' ? 'Overview' : 'All Diagrams'}
             </span>
           </button>
 
@@ -612,12 +650,36 @@ export default function WorkspacePage() {
             className="flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white shadow-2xs hover:bg-red-700 transition cursor-pointer"
           >
             <Plus className="size-3.5" />
-            <span>+ Create Diagram</span>
+            <span>+ Create</span>
           </button>
 
-          {view === 'editor' && (
+          {view === 'editor' && activeDiagram && (
             <>
               <span className="h-5 w-px bg-gray-200" />
+
+              {/* Version History */}
+              <button
+                type="button"
+                onClick={() => setIsVersionModalOpen(true)}
+                className="flex items-center gap-1 rounded-lg border border-purple-200 bg-purple-50/50 hover:bg-purple-100/60 px-2 py-1.5 text-xs font-semibold text-purple-700 transition cursor-pointer"
+                title="Version History & Snapshots"
+              >
+                <History className="size-3.5" />
+                <span className="hidden md:inline">v{activeDiagram.version || 1}.0</span>
+              </button>
+
+              {/* Export Diagram */}
+              <button
+                type="button"
+                onClick={() => setIsExportOpen(true)}
+                className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition cursor-pointer"
+                title="Export PNG, SVG, or JSON"
+              >
+                <Download className="size-3.5" />
+                <span className="hidden sm:inline">Export</span>
+              </button>
+
+              {/* Save Diagram */}
               <button
                 type="button"
                 onClick={() => void handleSaveActiveDiagram(activeDiagram?.data)}
@@ -929,6 +991,49 @@ export default function WorkspacePage() {
         isOpen={isCreateProjectModalOpen}
         onClose={() => setIsCreateProjectModalOpen(false)}
         onCreate={handleConfirmCreateProject}
+      />
+
+      {/* ── Command Palette (Cmd + K) ─────────────────────────── */}
+      <CommandPalette
+        isOpen={isCommandPaletteOpen}
+        onClose={() => setIsCommandPaletteOpen(false)}
+        diagrams={diagrams}
+        activeDiagramId={activeDiagram?.diagramId}
+        onSelectDiagram={handleSelectDiagram}
+        onCreateDiagram={(def) => handleConfirmCreateDiagram(def, `${def.name} 1`, def.recommendedEngine)}
+        onStartPresentation={() => setIsPresentationOpen(true)}
+        onOpenExport={() => setIsExportOpen(true)}
+        onSave={() => void handleSaveActiveDiagram(activeDiagram?.data)}
+        onOpenLibrary={() => setView('library')}
+        onOpenVersionHistory={() => setIsVersionModalOpen(true)}
+      />
+
+      {/* ── Full Project Presentation Mode ────────────────────── */}
+      <PresentationMode
+        isOpen={isPresentationOpen}
+        onClose={() => setIsPresentationOpen(false)}
+        diagrams={diagrams}
+        initialIndex={Math.max(0, diagrams.findIndex((d) => d.diagramId === activeDiagram?.diagramId))}
+        projectName={project?.name}
+      />
+
+      {/* ── Visual & Source Export Modal ──────────────────────── */}
+      <ExportModal
+        isOpen={isExportOpen}
+        onClose={() => setIsExportOpen(false)}
+        diagram={activeDiagram}
+        projectName={project?.name}
+      />
+
+      {/* ── Diagram Version History Modal ─────────────────────── */}
+      <VersionHistoryModal
+        isOpen={isVersionModalOpen}
+        onClose={() => setIsVersionModalOpen(false)}
+        diagram={activeDiagram}
+        onRestore={(restored) => {
+          setActiveDiagram(restored)
+          setDiagrams((prev) => prev.map((d) => (d.diagramId === restored.diagramId ? restored : d)))
+        }}
       />
     </main>
   )
