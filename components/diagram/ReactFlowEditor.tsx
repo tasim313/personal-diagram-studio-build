@@ -23,6 +23,13 @@ import {
   Trash2,
   Edit2,
   X,
+  Server,
+  Monitor,
+  Cpu,
+  Layers,
+  Cloud,
+  User,
+  Radio,
 } from 'lucide-react'
 
 interface ReactFlowEditorProps {
@@ -196,7 +203,20 @@ export function ReactFlowEditor({ initialData, diagramType = 'flowchart', onChan
   }
 
   // Quick Add Node Helpers
-  const addNode = (nodeType: 'process' | 'decision' | 'start' | 'end' | 'database') => {
+  const addNode = (
+    nodeType:
+      | 'process'
+      | 'decision'
+      | 'start'
+      | 'end'
+      | 'database'
+      | 'service'
+      | 'client'
+      | 'gateway'
+      | 'cache'
+      | 'queue'
+      | 'actor'
+  ) => {
     const id = `node-${Date.now()}`
     const xPos = 200 + Math.floor(Math.random() * 160)
     const yPos = 100 + Math.floor(Math.random() * 200)
@@ -208,7 +228,7 @@ export function ReactFlowEditor({ initialData, diagramType = 'flowchart', onChan
         newNode = {
           id,
           type: 'input',
-          data: { label: 'Start / Trigger' },
+          data: { label: 'Start / Entry Point' },
           position: { x: xPos, y: yPos },
           style: {
             background: '#f0fdf4',
@@ -241,7 +261,7 @@ export function ReactFlowEditor({ initialData, diagramType = 'flowchart', onChan
         newNode = {
           id,
           type: 'output',
-          data: { label: 'Finish / End' },
+          data: { label: 'Finish / Output' },
           position: { x: xPos, y: yPos },
           style: {
             background: '#ecfdf5',
@@ -257,7 +277,7 @@ export function ReactFlowEditor({ initialData, diagramType = 'flowchart', onChan
       case 'database':
         newNode = {
           id,
-          data: { label: 'Database Storage' },
+          data: { label: 'PostgreSQL / Database' },
           position: { x: xPos, y: yPos },
           style: {
             background: '#f0f9ff',
@@ -270,11 +290,109 @@ export function ReactFlowEditor({ initialData, diagramType = 'flowchart', onChan
           },
         }
         break
+      case 'service':
+        newNode = {
+          id,
+          data: { label: 'Microservice / Backend API' },
+          position: { x: xPos, y: yPos },
+          style: {
+            background: '#f8fafc',
+            border: '2px solid #6366f1',
+            borderRadius: '10px',
+            padding: '12px 20px',
+            fontWeight: 600,
+            color: '#4338ca',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.04)',
+          },
+        }
+        break
+      case 'client':
+        newNode = {
+          id,
+          type: 'input',
+          data: { label: 'Web / Mobile Client' },
+          position: { x: xPos, y: yPos },
+          style: {
+            background: '#faf5ff',
+            border: '2px solid #a855f7',
+            borderRadius: '12px',
+            padding: '10px 20px',
+            fontWeight: 600,
+            color: '#7e22ce',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.04)',
+          },
+        }
+        break
+      case 'gateway':
+        newNode = {
+          id,
+          data: { label: 'API Gateway / Load Balancer' },
+          position: { x: xPos, y: yPos },
+          style: {
+            background: '#fff1f2',
+            border: '2px solid #f43f5e',
+            borderRadius: '10px',
+            padding: '10px 20px',
+            fontWeight: 600,
+            color: '#be123c',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.04)',
+          },
+        }
+        break
+      case 'cache':
+        newNode = {
+          id,
+          data: { label: 'Redis Cache' },
+          position: { x: xPos, y: yPos },
+          style: {
+            background: '#fdf2f8',
+            border: '2px solid #ec4899',
+            borderRadius: '8px',
+            padding: '10px 18px',
+            fontWeight: 600,
+            color: '#be185d',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.04)',
+          },
+        }
+        break
+      case 'queue':
+        newNode = {
+          id,
+          data: { label: 'Message Queue / Kafka' },
+          position: { x: xPos, y: yPos },
+          style: {
+            background: '#fefce8',
+            border: '2px solid #ca8a04',
+            borderRadius: '8px',
+            padding: '10px 18px',
+            fontWeight: 600,
+            color: '#854d0e',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.04)',
+          },
+        }
+        break
+      case 'actor':
+        newNode = {
+          id,
+          type: 'input',
+          data: { label: 'User / Actor' },
+          position: { x: xPos, y: yPos },
+          style: {
+            background: '#eff6ff',
+            border: '2px solid #3b82f6',
+            borderRadius: '24px',
+            padding: '10px 20px',
+            fontWeight: 600,
+            color: '#1d4ed8',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.04)',
+          },
+        }
+        break
       case 'process':
       default:
         newNode = {
           id,
-          data: { label: 'New Process Step' },
+          data: { label: 'Process Step' },
           position: { x: xPos, y: yPos },
           style: {
             background: '#ffffff',
@@ -294,63 +412,156 @@ export function ReactFlowEditor({ initialData, diagramType = 'flowchart', onChan
     if (onChange) onChange({ nodes: updated, edges })
   }
 
+  const isArch =
+    diagramType.includes('architecture') ||
+    diagramType.includes('api') ||
+    diagramType.includes('cloud') ||
+    diagramType.includes('network') ||
+    diagramType.includes('software')
+
+  const isSequence = diagramType.includes('sequence')
+
   return (
     <div className="h-full w-full bg-slate-50 relative overflow-hidden select-none">
-      {/* ── Flowchart Node Toolbar ─────────────────────────────── */}
-      <div className="absolute top-3 left-4 z-20 flex items-center gap-1.5 bg-white/95 backdrop-blur-md px-3 py-2 rounded-2xl border border-gray-200 shadow-md">
+      {/* ── Dynamic Diagram Toolbar ─────────────────────────────── */}
+      <div className="absolute top-3 left-4 z-20 flex flex-wrap items-center gap-1.5 bg-white/95 backdrop-blur-md px-3 py-2 rounded-2xl border border-gray-200 shadow-md max-w-[calc(100vw-340px)]">
         <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mr-1 hidden sm:inline">
-          {diagramType.toUpperCase()} TOOLS:
+          {diagramType.replace('-', ' ').toUpperCase()} TOOLS:
         </span>
 
-        <button
-          type="button"
-          onClick={() => addNode('process')}
-          className="flex items-center gap-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 px-2.5 py-1.5 text-xs font-semibold transition cursor-pointer border border-blue-200"
-          title="Add a rectangular process step"
-        >
-          <Plus className="size-3.5" />
-          <span>+ Step / Process</span>
-        </button>
+        {/* Architecture Mode */}
+        {isArch ? (
+          <>
+            <button
+              type="button"
+              onClick={() => addNode('client')}
+              className="flex items-center gap-1 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-700 px-2 py-1 text-xs font-semibold border border-purple-200 cursor-pointer"
+            >
+              <Monitor className="size-3" />
+              <span>+ Client</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => addNode('gateway')}
+              className="flex items-center gap-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 px-2 py-1 text-xs font-semibold border border-rose-200 cursor-pointer"
+            >
+              <Cloud className="size-3" />
+              <span>+ Gateway</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => addNode('service')}
+              className="flex items-center gap-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-2 py-1 text-xs font-semibold border border-indigo-200 cursor-pointer"
+            >
+              <Cpu className="size-3" />
+              <span>+ Service</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => addNode('database')}
+              className="flex items-center gap-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 px-2 py-1 text-xs font-semibold border border-blue-200 cursor-pointer"
+            >
+              <Database className="size-3" />
+              <span>+ Database</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => addNode('cache')}
+              className="flex items-center gap-1 rounded-lg bg-pink-50 hover:bg-pink-100 text-pink-700 px-2 py-1 text-xs font-semibold border border-pink-200 cursor-pointer hidden md:flex"
+            >
+              <Layers className="size-3" />
+              <span>+ Cache</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => addNode('queue')}
+              className="flex items-center gap-1 rounded-lg bg-yellow-50 hover:bg-yellow-100 text-yellow-800 px-2 py-1 text-xs font-semibold border border-yellow-200 cursor-pointer hidden md:flex"
+            >
+              <Radio className="size-3" />
+              <span>+ Queue</span>
+            </button>
+          </>
+        ) : isSequence ? (
+          <>
+            <button
+              type="button"
+              onClick={() => addNode('actor')}
+              className="flex items-center gap-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 px-2 py-1 text-xs font-semibold border border-blue-200 cursor-pointer"
+            >
+              <User className="size-3" />
+              <span>+ Actor</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => addNode('service')}
+              className="flex items-center gap-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-2 py-1 text-xs font-semibold border border-indigo-200 cursor-pointer"
+            >
+              <Server className="size-3" />
+              <span>+ Service</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => addNode('database')}
+              className="flex items-center gap-1 rounded-lg bg-cyan-50 hover:bg-cyan-100 text-cyan-700 px-2 py-1 text-xs font-semibold border border-cyan-200 cursor-pointer"
+            >
+              <Database className="size-3" />
+              <span>+ Database</span>
+            </button>
+          </>
+        ) : (
+          /* Standard Flowchart & Process Mode */
+          <>
+            <button
+              type="button"
+              onClick={() => addNode('process')}
+              className="flex items-center gap-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 px-2.5 py-1.5 text-xs font-semibold transition cursor-pointer border border-blue-200"
+              title="Add a rectangular process step"
+            >
+              <Plus className="size-3.5" />
+              <span>+ Step / Process</span>
+            </button>
 
-        <button
-          type="button"
-          onClick={() => addNode('decision')}
-          className="flex items-center gap-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-700 px-2.5 py-1.5 text-xs font-semibold transition cursor-pointer border border-amber-200"
-          title="Add a decision diamond"
-        >
-          <GitBranch className="size-3.5" />
-          <span>+ Decision</span>
-        </button>
+            <button
+              type="button"
+              onClick={() => addNode('decision')}
+              className="flex items-center gap-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-700 px-2.5 py-1.5 text-xs font-semibold transition cursor-pointer border border-amber-200"
+              title="Add a decision diamond"
+            >
+              <GitBranch className="size-3.5" />
+              <span>+ Decision</span>
+            </button>
 
-        <button
-          type="button"
-          onClick={() => addNode('start')}
-          className="flex items-center gap-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-2.5 py-1.5 text-xs font-semibold transition cursor-pointer border border-emerald-200"
-          title="Add a start node"
-        >
-          <PlayCircle className="size-3.5" />
-          <span>+ Start</span>
-        </button>
+            <button
+              type="button"
+              onClick={() => addNode('start')}
+              className="flex items-center gap-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-2.5 py-1.5 text-xs font-semibold transition cursor-pointer border border-emerald-200"
+              title="Add a start node"
+            >
+              <PlayCircle className="size-3.5" />
+              <span>+ Start</span>
+            </button>
 
-        <button
-          type="button"
-          onClick={() => addNode('end')}
-          className="flex items-center gap-1.5 rounded-lg bg-green-50 hover:bg-green-100 text-green-700 px-2.5 py-1.5 text-xs font-semibold transition cursor-pointer border border-green-200"
-          title="Add an end node"
-        >
-          <CheckCircle className="size-3.5" />
-          <span>+ End</span>
-        </button>
+            <button
+              type="button"
+              onClick={() => addNode('end')}
+              className="flex items-center gap-1.5 rounded-lg bg-green-50 hover:bg-green-100 text-green-700 px-2.5 py-1.5 text-xs font-semibold transition cursor-pointer border border-green-200"
+              title="Add an end node"
+            >
+              <CheckCircle className="size-3.5" />
+              <span>+ End</span>
+            </button>
 
-        <button
-          type="button"
-          onClick={() => addNode('database')}
-          className="flex items-center gap-1.5 rounded-lg bg-cyan-50 hover:bg-cyan-100 text-cyan-700 px-2.5 py-1.5 text-xs font-semibold transition cursor-pointer border border-cyan-200 hidden md:flex"
-          title="Add a database node"
-        >
-          <Database className="size-3.5" />
-          <span>+ Database</span>
-        </button>
+            <button
+              type="button"
+              onClick={() => addNode('database')}
+              className="flex items-center gap-1.5 rounded-lg bg-cyan-50 hover:bg-cyan-100 text-cyan-700 px-2.5 py-1.5 text-xs font-semibold transition cursor-pointer border border-cyan-200 hidden md:flex"
+              title="Add a database node"
+            >
+              <Database className="size-3.5" />
+              <span>+ Database</span>
+            </button>
+          </>
+        )}
       </div>
 
       {/* ── Selected Node Inspector Floating Panel ────────────── */}
@@ -363,7 +574,7 @@ export function ReactFlowEditor({ initialData, diagramType = 'flowchart', onChan
             </div>
             <button
               onClick={() => setSelectedNode(null)}
-              className="text-gray-400 hover:text-gray-600 rounded p-1"
+              className="text-gray-400 hover:text-gray-600 rounded p-1 cursor-pointer"
             >
               <X className="size-3.5" />
             </button>
