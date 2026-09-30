@@ -617,12 +617,23 @@ export default function WorkspacePage() {
           {/* Presentation Mode */}
           <button
             type="button"
-            onClick={() => setIsPresentationOpen(true)}
-            disabled={diagrams.length === 0}
-            className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition cursor-pointer"
-            title="Present Project Slides (Fullscreen)"
+            onClick={() => {
+              if (diagrams.length > 0) {
+                setIsPresentationOpen(true)
+              }
+            }}
+            className={`flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium transition ${
+              diagrams.length === 0
+                ? 'opacity-60 cursor-not-allowed text-gray-400'
+                : 'text-gray-700 hover:bg-gray-50 cursor-pointer'
+            }`}
+            title={
+              diagrams.length > 0
+                ? 'Present Project Slides (Fullscreen)'
+                : 'Create a diagram to start presentation'
+            }
           >
-            <Play className="size-3.5 fill-gray-700" />
+            <Play className="size-3.5 fill-current" />
             <span className="hidden sm:inline">Present</span>
           </button>
 

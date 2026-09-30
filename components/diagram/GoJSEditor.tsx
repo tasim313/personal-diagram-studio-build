@@ -66,6 +66,7 @@ const defaultERDLinks = [
 export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSEditorProps) {
   const diagramRef = useRef<HTMLDivElement>(null)
   const myDiagramRef = useRef<go.Diagram | null>(null)
+  const initialDataRef = useRef(initialData)
 
   // Selection tracking
   const [selectedTableKey, setSelectedTableKey] = useState<string>('USERS')
@@ -291,15 +292,16 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
     )
 
     // Populate model
+    const initData = initialDataRef.current
     const initialNodes = (
-      initialData?.nodeDataArray && initialData.nodeDataArray.length > 0
-        ? initialData.nodeDataArray
+      initData?.nodeDataArray && initData.nodeDataArray.length > 0
+        ? initData.nodeDataArray
         : defaultERDNodes
     ) as go.ObjectData[]
 
     const initialLinks = (
-      initialData?.linkDataArray && initialData.linkDataArray.length > 0
-        ? initialData.linkDataArray
+      initData?.linkDataArray && initData.linkDataArray.length > 0
+        ? initData.linkDataArray
         : defaultERDLinks
     ) as go.ObjectData[]
 
@@ -357,9 +359,16 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
     myDiagramRef.current = myDiagram
 
     return () => {
-      myDiagram.div = null
+      try {
+        if (myDiagramRef.current) {
+          myDiagramRef.current.clear()
+          myDiagramRef.current = null
+        }
+      } catch {
+        // Safe unmount without DOM collision
+      }
     }
-  }, [initialData])
+  }, [])
 
   // 1. ADD NEW TABLE / ENTITY
   const handleAddTable = (e: React.FormEvent) => {
