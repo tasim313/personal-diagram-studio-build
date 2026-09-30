@@ -29,7 +29,7 @@ const defaultERDNodes = [
       { name: 'email', iskey: false, figure: 'Cube1', color: '#3b82f6' },
       { name: 'created_at', iskey: false, figure: 'Cube1', color: '#10b981' },
     ],
-    loc: '0 0',
+    loc: '50 50',
   },
   {
     key: 'PROJECTS',
@@ -39,7 +39,7 @@ const defaultERDNodes = [
       { name: 'name', iskey: false, figure: 'Cube1', color: '#3b82f6' },
       { name: 'updated_at', iskey: false, figure: 'Cube1', color: '#10b981' },
     ],
-    loc: '260 0',
+    loc: '320 50',
   },
   {
     key: 'DIAGRAMS',
@@ -49,7 +49,7 @@ const defaultERDNodes = [
       { name: 'engine', iskey: false, figure: 'Cube1', color: '#8b5cf6' },
       { name: 'data', iskey: false, figure: 'Cube1', color: '#64748b' },
     ],
-    loc: '520 0',
+    loc: '590 50',
   },
 ]
 
@@ -62,18 +62,44 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
   const diagramRef = useRef<HTMLDivElement>(null)
   const myDiagramRef = useRef<go.Diagram | null>(null)
 
-  // Modals / forms for adding entities & fields
+  // Selection tracking
+  const [selectedTableKey, setSelectedTableKey] = useState<string>('USERS')
+  const [availableTables, setAvailableTables] = useState<string[]>(['USERS', 'PROJECTS', 'DIAGRAMS'])
+
+  // Modals state
   const [isAddTableOpen, setIsAddTableOpen] = useState(false)
   const [newTableName, setNewTableName] = useState('')
+
   const [isAddFieldOpen, setIsAddFieldOpen] = useState(false)
+  const [targetTableForField, setTargetTableForField] = useState('USERS')
   const [newFieldName, setNewFieldName] = useState('')
   const [newFieldIsKey, setNewFieldIsKey] = useState(false)
+
   const [isAddLinkOpen, setIsAddLinkOpen] = useState(false)
   const [linkFrom, setLinkFrom] = useState('')
   const [linkTo, setLinkTo] = useState('')
   const [linkType, setLinkType] = useState('1 : N')
 
-  const [availableTables, setAvailableTables] = useState<string[]>([])
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false)
+  const [tableToDelete, setTableToDelete] = useState('USERS')
+
+  // Helper to extract clean state and notify parent
+  const syncModelChange = () => {
+    if (!myDiagramRef.current) return
+    const model = myDiagramRef.current.model as go.GraphLinksModel
+    const nodes = JSON.parse(JSON.stringify(model.nodeDataArray || [])) as go.ObjectData[]
+    const links = JSON.parse(JSON.stringify(model.linkDataArray || [])) as go.ObjectData[]
+
+    const tableKeys = nodes.map((n) => String(n.key || ''))
+    setAvailableTables(tableKeys)
+
+    if (onChange) {
+      onChange({
+        nodeDataArray: nodes,
+        linkDataArray: links,
+      })
+    }
+  }
 
   useEffect(() => {
     if (!diagramRef.current) return
@@ -88,7 +114,7 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
       }),
     })
 
-    // Item template for ERD attributes
+    // Item template for attributes
     const itemTemplate = $(
       go.Panel,
       'Horizontal',
@@ -114,7 +140,7 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
       $(go.Shape, 'RoundedRectangle', {
         fill: '#ffffff',
         stroke: '#cbd5e1',
-        strokeWidth: 1.5,
+        strokeWidth: 2,
         portId: '',
         cursor: 'pointer',
         fromLinkable: true,
@@ -123,7 +149,7 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
       $(
         go.Panel,
         'Table',
-        { margin: 8, minSize: new go.Size(130, NaN) },
+        { margin: 10, minSize: new go.Size(140, NaN) },
         // Header
         $(
           go.TextBlock,
@@ -165,8 +191,8 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
         go.TextBlock,
         {
           segmentOffset: new go.Point(0, -10),
-          font: '10px sans-serif',
-          stroke: '#64748b',
+          font: 'bold 10px sans-serif',
+          stroke: '#475569',
           background: '#ffffff',
         },
         new go.Binding('text', 'text')
@@ -174,27 +200,43 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
     )
 
     // Populate model
-    const nodes = (initialData?.nodeDataArray?.length ? initialData.nodeDataArray : defaultERDNodes) as go.ObjectData[]
-    const links = (initialData?.linkDataArray?.length ? initialData.linkDataArray : defaultERDLinks) as go.ObjectData[]
+    const initialNodes = (
+      initialData?.nodeDataArray && initialData.nodeDataArray.length > 0
+        ? initialData.nodeDataArray
+        : defaultERDNodes
+    ) as go.ObjectData[]
 
-    myDiagram.model = new go.GraphLinksModel(nodes, links)
+    const initialLinks = (
+      initialData?.linkDataArray && initialData.linkDataArray.length > 0
+        ? initialData.linkDataArray
+        : defaultERDLinks
+    ) as go.ObjectData[]
 
-    // Update list of table names
-    setAvailableTables(nodes.map((n) => String(n.key || '')))
+    myDiagram.model = new go.GraphLinksModel(initialNodes, initialLinks)
 
-    // Listener for changes
+    const tableKeys = initialNodes.map((n) => String(n.key || ''))
+    setAvailableTables(tableKeys)
+    if (tableKeys.length > 0) {
+      setSelectedTableKey(tableKeys[0])
+      setTargetTableForField(tableKeys[0])
+      setTableToDelete(tableKeys[0])
+    }
+
+    // Keep track of active selection on canvas
+    myDiagram.addDiagramListener('ChangedSelection', () => {
+      const sel = myDiagram.selection.first()
+      if (sel instanceof go.Node && sel.data) {
+        const k = String(sel.data.key || '')
+        setSelectedTableKey(k)
+        setTargetTableForField(k)
+        setTableToDelete(k)
+      }
+    })
+
+    // Listen to changes (e.g. dragging or manual edits)
     myDiagram.addModelChangedListener((e) => {
-      if (e.isTransactionFinished && onChange) {
-        const modelJson = myDiagram.model.toIncrementalJson(e)
-        if (modelJson) {
-          const updatedNodes = (myDiagram.model as go.GraphLinksModel).nodeDataArray as go.ObjectData[]
-          const updatedLinks = (myDiagram.model as go.GraphLinksModel).linkDataArray as go.ObjectData[]
-          onChange({
-            nodeDataArray: updatedNodes,
-            linkDataArray: updatedLinks,
-          })
-          setAvailableTables(updatedNodes.map((n) => String(n.key || '')))
-        }
+      if (e.isTransactionFinished) {
+        syncModelChange()
       }
     })
 
@@ -203,94 +245,141 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
     return () => {
       myDiagram.div = null
     }
-  }, [initialData, onChange])
+  }, [initialData])
 
-  // Handlers for adding new entities and relations
+  // 1. ADD NEW TABLE / ENTITY
   const handleAddTable = (e: React.FormEvent) => {
     e.preventDefault()
     const name = newTableName.trim().toUpperCase()
     if (!name || !myDiagramRef.current) return
 
     const myDiagram = myDiagramRef.current
+    const model = myDiagram.model as go.GraphLinksModel
+
+    // Ensure unique name
+    let finalName = name
+    let counter = 1
+    while (model.findNodeDataForKey(finalName)) {
+      finalName = `${name}_${counter++}`
+    }
+
     myDiagram.startTransaction('add table')
     const newNode = {
-      key: name,
+      key: finalName,
       items: [
         { name: 'id', iskey: true, figure: 'Decision', color: '#ef4444' },
         { name: 'name', iskey: false, figure: 'Cube1', color: '#3b82f6' },
         { name: 'created_at', iskey: false, figure: 'Cube1', color: '#10b981' },
       ],
-      loc: `${Math.floor(Math.random() * 400 + 100)} ${Math.floor(Math.random() * 250 + 50)}`,
+      loc: `${Math.floor(Math.random() * 300 + 100)} ${Math.floor(Math.random() * 200 + 50)}`,
     }
-    ;(myDiagram.model as go.GraphLinksModel).addNodeData(newNode)
+    model.addNodeData(newNode)
     myDiagram.commitTransaction('add table')
 
+    // Select the new node
+    const createdNode = myDiagram.findNodeForKey(finalName)
+    if (createdNode) {
+      myDiagram.select(createdNode)
+    }
+
+    setSelectedTableKey(finalName)
+    setTargetTableForField(finalName)
     setNewTableName('')
     setIsAddTableOpen(false)
+    syncModelChange()
   }
 
+  // 2. ADD COLUMN / FIELD TO SPECIFIC TABLE
   const handleAddField = (e: React.FormEvent) => {
     e.preventDefault()
     const field = newFieldName.trim()
-    if (!field || !myDiagramRef.current) return
+    const targetKey = targetTableForField || selectedTableKey
+    if (!field || !targetKey || !myDiagramRef.current) return
 
     const myDiagram = myDiagramRef.current
-    const sel = myDiagram.selection.first()
-    let targetNode = sel instanceof go.Node ? sel.data : null
+    const targetNode = myDiagram.findNodeForKey(targetKey)
 
-    // If no node selected, use first table
-    if (!targetNode) {
-      const allNodes = (myDiagram.model as go.GraphLinksModel).nodeDataArray
-      if (allNodes.length > 0) targetNode = allNodes[0]
-    }
-
-    if (targetNode) {
+    if (targetNode && targetNode.data) {
       myDiagram.startTransaction('add field')
-      const items = Array.isArray(targetNode.items) ? [...targetNode.items] : []
-      items.push({
-        name: field,
-        iskey: newFieldIsKey,
-        figure: newFieldIsKey ? 'Decision' : 'Cube1',
-        color: newFieldIsKey ? '#ef4444' : '#3b82f6',
-      })
-      myDiagram.model.setDataProperty(targetNode, 'items', items)
+      const existingItems = Array.isArray(targetNode.data.items) ? targetNode.data.items : []
+      const updatedItems = [
+        ...existingItems,
+        {
+          name: field,
+          iskey: newFieldIsKey,
+          figure: newFieldIsKey ? 'Decision' : 'Cube1',
+          color: newFieldIsKey ? '#ef4444' : '#3b82f6',
+        },
+      ]
+      myDiagram.model.setDataProperty(targetNode.data, 'items', updatedItems)
       myDiagram.commitTransaction('add field')
     }
 
     setNewFieldName('')
     setNewFieldIsKey(false)
     setIsAddFieldOpen(false)
+    syncModelChange()
   }
 
+  // 3. ADD RELATIONSHIP BETWEEN TABLES
   const handleAddLink = (e: React.FormEvent) => {
     e.preventDefault()
     if (!linkFrom || !linkTo || !myDiagramRef.current) return
 
     const myDiagram = myDiagramRef.current
-    myDiagram.startTransaction('add link')
-    ;(myDiagram.model as go.GraphLinksModel).addLinkData({
+    myDiagram.startTransaction('add relationship')
+    const model = myDiagram.model as go.GraphLinksModel
+
+    model.addLinkData({
       from: linkFrom,
       to: linkTo,
       text: linkType,
     })
-    myDiagram.commitTransaction('add link')
+    myDiagram.commitTransaction('add relationship')
 
     setIsAddLinkOpen(false)
+    syncModelChange()
   }
 
-  const handleDeleteSelected = () => {
+  // 4. DELETE TABLE / SELECTION
+  const handleConfirmDelete = () => {
     if (!myDiagramRef.current) return
-    myDiagramRef.current.commandHandler.deleteSelection()
+    const myDiagram = myDiagramRef.current
+
+    myDiagram.startTransaction('delete table')
+
+    // Try deleting canvas selection first
+    if (myDiagram.selection.count > 0) {
+      myDiagram.commandHandler.deleteSelection()
+    } else {
+      // Fallback: delete chosen table by key
+      const key = tableToDelete || selectedTableKey
+      const node = myDiagram.findNodeForKey(key)
+      if (node) {
+        myDiagram.remove(node)
+      }
+    }
+
+    myDiagram.commitTransaction('delete table')
+    setIsDeleteOpen(false)
+    syncModelChange()
   }
 
   return (
     <div className="h-full w-full bg-slate-50 relative overflow-hidden select-none">
       {/* ── ERD Toolbar ────────────────────────────────────────── */}
-      <div className="absolute top-3 left-4 z-20 flex items-center gap-1.5 bg-white/95 backdrop-blur-md px-3 py-2 rounded-2xl border border-gray-200 shadow-md">
+      <div className="absolute top-3 left-4 z-20 flex flex-wrap items-center gap-1.5 bg-white/95 backdrop-blur-md px-3 py-2 rounded-2xl border border-gray-200 shadow-md">
         <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mr-1 hidden sm:inline">
           {diagramType.toUpperCase()} TOOLS:
         </span>
 
+        {/* Selected table indicator */}
+        <div className="flex items-center gap-1 bg-gray-100 px-2 py-1 rounded-lg text-xs font-semibold text-gray-700 mr-1">
+          <Database className="size-3 text-red-600" />
+          <span className="truncate max-w-28">{selectedTableKey || 'None'}</span>
+        </div>
+
+        {/* Add Entity Table */}
         <button
           type="button"
           onClick={() => setIsAddTableOpen(true)}
@@ -301,50 +390,62 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
           <span>+ Add Entity / Table</span>
         </button>
 
+        {/* Add Column */}
         <button
           type="button"
-          onClick={() => setIsAddFieldOpen(true)}
+          onClick={() => {
+            setTargetTableForField(selectedTableKey || availableTables[0] || '')
+            setIsAddFieldOpen(true)
+          }}
           className="flex items-center gap-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-2.5 py-1.5 text-xs font-semibold transition cursor-pointer border border-emerald-200"
-          title="Add a column / field to selected table"
+          title="Add a column / attribute to table"
         >
           <Plus className="size-3.5" />
-          <span>+ Add Column / Field</span>
+          <span>+ Add Column</span>
         </button>
 
+        {/* Add Relationship */}
         <button
           type="button"
           onClick={() => {
             if (availableTables.length >= 2) {
               setLinkFrom(availableTables[0])
               setLinkTo(availableTables[1])
+            } else if (availableTables.length === 1) {
+              setLinkFrom(availableTables[0])
+              setLinkTo(availableTables[0])
             }
             setIsAddLinkOpen(true)
           }}
           className="flex items-center gap-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-700 px-2.5 py-1.5 text-xs font-semibold transition cursor-pointer border border-purple-200"
-          title="Add a relationship between tables"
+          title="Connect tables with 1:N, 1:1, or N:M"
         >
           <LinkIcon className="size-3.5" />
           <span>+ Add Relationship</span>
         </button>
 
+        {/* Delete */}
         <button
           type="button"
-          onClick={handleDeleteSelected}
+          onClick={() => {
+            setTableToDelete(selectedTableKey || availableTables[0] || '')
+            setIsDeleteOpen(true)
+          }}
           className="flex items-center gap-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 px-2.5 py-1.5 text-xs font-semibold transition cursor-pointer border border-red-200"
-          title="Delete selected table or link"
+          title="Delete table or relationship"
         >
           <Trash2 className="size-3.5" />
-          <span className="hidden md:inline">Delete</span>
+          <span>Delete</span>
         </button>
       </div>
 
-      {/* ── Add Table Modal ────────────────────────────────────── */}
+      {/* ── Modal: Add Table ───────────────────────────────────── */}
       {isAddTableOpen && (
         <div className="absolute top-16 left-4 z-30 w-80 bg-white/95 backdrop-blur-md rounded-2xl border border-gray-200 shadow-xl p-4 animate-in fade-in zoom-in-95">
           <div className="flex items-center justify-between pb-2 border-b border-gray-100 mb-3">
             <div className="flex items-center gap-1.5">
-              <Database className="size-3.5 text-blue-600" />
-              <span className="text-xs font-bold text-gray-800">Add New Database Entity</span>
+              <Table className="size-3.5 text-blue-600" />
+              <span className="text-xs font-bold text-gray-800">Add New Entity / Table</span>
             </div>
             <button
               onClick={() => setIsAddTableOpen(false)}
@@ -357,17 +458,20 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
           <form onSubmit={handleAddTable} className="space-y-3">
             <div>
               <label className="block text-[11px] font-semibold text-gray-600 mb-1">
-                Table / Entity Name (e.g. ORDERS, PRODUCTS, INVOICES)
+                Entity / Table Name
               </label>
               <input
                 type="text"
                 autoFocus
                 required
-                placeholder="ORDERS"
+                placeholder="ORDERS, INVOICES, PRODUCTS..."
                 value={newTableName}
                 onChange={(e) => setNewTableName(e.target.value)}
                 className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-900 focus:border-red-600 focus:outline-none uppercase"
               />
+              <span className="text-[10px] text-gray-400 mt-1 block">
+                Will be created with default `id (PK)` and `name` attributes.
+              </span>
             </div>
 
             <div className="flex items-center justify-end gap-2 pt-1">
@@ -389,13 +493,13 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
         </div>
       )}
 
-      {/* ── Add Field Modal ────────────────────────────────────── */}
+      {/* ── Modal: Add Column / Field ──────────────────────────── */}
       {isAddFieldOpen && (
-        <div className="absolute top-16 left-32 z-30 w-80 bg-white/95 backdrop-blur-md rounded-2xl border border-gray-200 shadow-xl p-4 animate-in fade-in zoom-in-95">
+        <div className="absolute top-16 left-28 z-30 w-84 bg-white/95 backdrop-blur-md rounded-2xl border border-gray-200 shadow-xl p-4 animate-in fade-in zoom-in-95">
           <div className="flex items-center justify-between pb-2 border-b border-gray-100 mb-3">
             <div className="flex items-center gap-1.5">
               <Plus className="size-3.5 text-emerald-600" />
-              <span className="text-xs font-bold text-gray-800">Add Column / Attribute</span>
+              <span className="text-xs font-bold text-gray-800">Add Column to Table</span>
             </div>
             <button
               onClick={() => setIsAddFieldOpen(false)}
@@ -406,9 +510,28 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
           </div>
 
           <form onSubmit={handleAddField} className="space-y-3">
+            {/* Target Table Dropdown */}
             <div>
               <label className="block text-[11px] font-semibold text-gray-600 mb-1">
-                Column Name (e.g. status, total_amount, email)
+                Target Table
+              </label>
+              <select
+                value={targetTableForField}
+                onChange={(e) => setTargetTableForField(e.target.value)}
+                className="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs text-gray-900 focus:border-red-600 focus:outline-none"
+              >
+                {availableTables.map((t) => (
+                  <option key={t} value={t}>
+                    Table: {t}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Column Name */}
+            <div>
+              <label className="block text-[11px] font-semibold text-gray-600 mb-1">
+                Column Name (e.g. status, amount, user_id)
               </label>
               <input
                 type="text"
@@ -441,7 +564,7 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
               </button>
               <button
                 type="submit"
-                className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white shadow-2xs hover:bg-red-700 transition cursor-pointer"
+                className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-2xs hover:bg-emerald-700 transition cursor-pointer"
               >
                 Add Column
               </button>
@@ -450,7 +573,7 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
         </div>
       )}
 
-      {/* ── Add Relationship Modal ─────────────────────────────── */}
+      {/* ── Modal: Add Relationship ────────────────────────────── */}
       {isAddLinkOpen && (
         <div className="absolute top-16 left-60 z-30 w-84 bg-white/95 backdrop-blur-md rounded-2xl border border-gray-200 shadow-xl p-4 animate-in fade-in zoom-in-95">
           <div className="flex items-center justify-between pb-2 border-b border-gray-100 mb-3">
@@ -495,14 +618,14 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
             </div>
 
             <div>
-              <label className="block text-[11px] font-semibold text-gray-600 mb-1">Cardinality</label>
+              <label className="block text-[11px] font-semibold text-gray-600 mb-1">Cardinality / Label</label>
               <select
                 value={linkType}
                 onChange={(e) => setLinkType(e.target.value)}
                 className="w-full rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-xs text-gray-900"
               >
-                <option value="1 : N">1 to Many (1 : N)</option>
-                <option value="1 : 1">1 to 1 (1 : 1)</option>
+                <option value="1 : N">One to Many (1 : N)</option>
+                <option value="1 : 1">One to One (1 : 1)</option>
                 <option value="N : M">Many to Many (N : M)</option>
               </select>
             </div>
@@ -517,12 +640,67 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
               </button>
               <button
                 type="submit"
-                className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white shadow-2xs hover:bg-red-700 transition cursor-pointer"
+                className="rounded-lg bg-purple-600 px-3 py-1.5 text-xs font-semibold text-white shadow-2xs hover:bg-purple-700 transition cursor-pointer"
               >
                 Connect Tables
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* ── Modal: Delete Confirmation ─────────────────────────── */}
+      {isDeleteOpen && (
+        <div className="absolute top-16 left-80 z-30 w-80 bg-white/95 backdrop-blur-md rounded-2xl border border-gray-200 shadow-xl p-4 animate-in fade-in zoom-in-95">
+          <div className="flex items-center justify-between pb-2 border-b border-gray-100 mb-3">
+            <div className="flex items-center gap-1.5">
+              <Trash2 className="size-3.5 text-red-600" />
+              <span className="text-xs font-bold text-gray-800">Delete Entity or Link</span>
+            </div>
+            <button
+              onClick={() => setIsDeleteOpen(false)}
+              className="text-gray-400 hover:text-gray-600 rounded p-1 cursor-pointer"
+            >
+              <X className="size-3.5" />
+            </button>
+          </div>
+
+          <div className="space-y-3">
+            <p className="text-xs text-gray-600">
+              Select which table or element you want to delete:
+            </p>
+
+            <div>
+              <select
+                value={tableToDelete}
+                onChange={(e) => setTableToDelete(e.target.value)}
+                className="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs text-gray-900"
+              >
+                {availableTables.map((t) => (
+                  <option key={t} value={t}>
+                    Delete Table: {t}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setIsDeleteOpen(false)}
+                className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white shadow-2xs hover:bg-red-700 transition cursor-pointer"
+              >
+                Delete Now
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
