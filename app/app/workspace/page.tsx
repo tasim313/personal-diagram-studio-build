@@ -1,7 +1,7 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import React, { useCallback, useEffect, useRef, useState, useTransition } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -95,6 +95,49 @@ export default function WorkspacePage() {
   const [isDiagramDropdownOpen, setIsDiagramDropdownOpen] = useState(false)
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false)
   const [isCreateProjectModalOpen, setIsCreateProjectModalOpen] = useState(false)
+  const [quickCategory, setQuickCategory] = useState<string>('popular')
+  const [quickSearch, setQuickSearch] = useState<string>('')
+
+  const sidebarDiagramOptions = useMemo(() => {
+    if (quickSearch.trim()) {
+      const q = quickSearch.trim().toLowerCase()
+      return DIAGRAM_CATALOG.filter(
+        (d) =>
+          d.name.toLowerCase().includes(q) ||
+          d.id.toLowerCase().includes(q) ||
+          d.category.toLowerCase().includes(q)
+      )
+    }
+
+    switch (quickCategory) {
+      case 'flow':
+        return DIAGRAM_CATALOG.filter((d) => d.category === 'flow-process')
+      case 'software':
+        return DIAGRAM_CATALOG.filter((d) => d.category === 'software-engineering')
+      case 'database':
+        return DIAGRAM_CATALOG.filter((d) => d.category === 'database')
+      case 'security':
+        return DIAGRAM_CATALOG.filter((d) => d.category === 'security')
+      case 'uiux':
+        return DIAGRAM_CATALOG.filter((d) => d.category === 'ui-ux')
+      case 'infra':
+        return DIAGRAM_CATALOG.filter((d) => d.category === 'infrastructure')
+      case 'pm':
+        return DIAGRAM_CATALOG.filter((d) => d.category === 'project-management')
+      case 'popular':
+      default:
+        return [
+          DIAGRAM_CATALOG.find((d) => d.id === 'flowchart'),
+          DIAGRAM_CATALOG.find((d) => d.id === 'erd'),
+          DIAGRAM_CATALOG.find((d) => d.id === 'system-architecture'),
+          DIAGRAM_CATALOG.find((d) => d.id === 'freeform'),
+          DIAGRAM_CATALOG.find((d) => d.id === 'activity-diagram'),
+          DIAGRAM_CATALOG.find((d) => d.id === 'sequence-diagram'),
+          DIAGRAM_CATALOG.find((d) => d.id === 'wireframe'),
+          DIAGRAM_CATALOG.find((d) => d.id === 'cloud-architecture'),
+        ].filter(Boolean) as DiagramTypeDefinition[]
+    }
+  }, [quickCategory, quickSearch])
 
   // Initialize or load project & diagrams
   useEffect(() => {
@@ -614,48 +657,86 @@ export default function WorkspacePage() {
               <span>+ Create Diagram</span>
             </button>
 
-            {/* Quick-Add Popular Diagram Types */}
-            <div>
-              <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 block mb-1">
-                Quick Add:
-              </span>
-              <div className="grid grid-cols-2 gap-1 text-[11px]">
+            {/* Quick-Add Multi-Category Diagram Types */}
+            <div className="space-y-2 pt-1 border-t border-gray-100">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                  Add New Diagram:
+                </span>
                 <button
                   type="button"
-                  onClick={() => handleCreateQuickDiagram('flowchart')}
-                  className="flex items-center gap-1 rounded-lg border border-teal-200 bg-teal-50/60 hover:bg-teal-100 text-teal-700 px-2 py-1 font-semibold transition cursor-pointer"
-                  title="Create new Flowchart"
+                  onClick={() => setIsSelectorOpen(true)}
+                  className="text-[10px] font-semibold text-red-600 hover:underline cursor-pointer"
                 >
-                  <Plus className="size-3 shrink-0" />
-                  <span className="truncate">Flowchart</span>
+                  All (36) →
                 </button>
-                <button
-                  type="button"
-                  onClick={() => handleCreateQuickDiagram('erd')}
-                  className="flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50/60 hover:bg-blue-100 text-blue-700 px-2 py-1 font-semibold transition cursor-pointer"
-                  title="Create new ERD"
-                >
-                  <Plus className="size-3 shrink-0" />
-                  <span className="truncate">ERD</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleCreateQuickDiagram('freeform')}
-                  className="flex items-center gap-1 rounded-lg border border-purple-200 bg-purple-50/60 hover:bg-purple-100 text-purple-700 px-2 py-1 font-semibold transition cursor-pointer"
-                  title="Create Freeform whiteboard"
-                >
-                  <Plus className="size-3 shrink-0" />
-                  <span className="truncate">Freeform</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleCreateQuickDiagram('activity-diagram')}
-                  className="flex items-center gap-1 rounded-lg border border-amber-200 bg-amber-50/60 hover:bg-amber-100 text-amber-700 px-2 py-1 font-semibold transition cursor-pointer"
-                  title="Create Activity Diagram"
-                >
-                  <Plus className="size-3 shrink-0" />
-                  <span className="truncate">Activity</span>
-                </button>
+              </div>
+
+              {/* Quick Search */}
+              <input
+                type="text"
+                placeholder="Search types (e.g. flow, erd, arch)..."
+                value={quickSearch}
+                onChange={(e) => setQuickSearch(e.target.value)}
+                className="w-full rounded-lg border border-gray-200 bg-gray-50/70 px-2 py-1 text-[11px] placeholder:text-gray-400 text-gray-800 focus:outline-none focus:border-red-600"
+              />
+
+              {/* Category Pills */}
+              {!quickSearch && (
+                <div className="flex items-center gap-1 overflow-x-auto pb-1 scrollbar-none text-[10px]">
+                  {[
+                    { id: 'popular', label: '⭐ Popular' },
+                    { id: 'flow', label: 'Flow' },
+                    { id: 'software', label: 'Arch' },
+                    { id: 'database', label: 'Database' },
+                    { id: 'security', label: 'Security' },
+                    { id: 'uiux', label: 'UI/UX' },
+                    { id: 'infra', label: 'Cloud' },
+                  ].map((tab) => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setQuickCategory(tab.id)}
+                      className={`px-1.5 py-0.5 rounded font-medium shrink-0 cursor-pointer transition ${
+                        quickCategory === tab.id
+                          ? 'bg-red-600 text-white font-bold'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Diagram Options Grid */}
+              <div className="max-h-36 overflow-y-auto space-y-1 pr-1">
+                {sidebarDiagramOptions.slice(0, 12).map((diag: DiagramTypeDefinition) => {
+                  const engineColor =
+                    diag.recommendedEngine === 'reactflow'
+                      ? 'border-teal-200 bg-teal-50/60 text-teal-700 hover:bg-teal-100'
+                      : diag.recommendedEngine === 'gojs'
+                      ? 'border-blue-200 bg-blue-50/60 text-blue-700 hover:bg-blue-100'
+                      : 'border-purple-200 bg-purple-50/60 text-purple-700 hover:bg-purple-100'
+
+                  return (
+                    <button
+                      key={diag.id}
+                      type="button"
+                      onClick={() => handleCreateQuickDiagram(diag.id)}
+                      className={`w-full flex items-center justify-between gap-1.5 rounded-lg border px-2 py-1 text-[11px] font-semibold transition cursor-pointer text-left ${engineColor}`}
+                      title={diag.description}
+                    >
+                      <div className="flex items-center gap-1 min-w-0">
+                        <Plus className="size-3 shrink-0" />
+                        <span className="truncate">{diag.name}</span>
+                      </div>
+                      <span className="text-[8px] uppercase tracking-wider opacity-75 shrink-0">
+                        {diag.recommendedEngine.slice(0, 4)}
+                      </span>
+                    </button>
+                  )
+                })}
               </div>
             </div>
           </div>
