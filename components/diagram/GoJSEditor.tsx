@@ -3,12 +3,12 @@
 import React, { useEffect, useRef, useState } from 'react'
 import * as go from 'gojs'
 import {
-  Plus,
   Database,
   Table,
   Link as LinkIcon,
   Trash2,
   X,
+  Columns,
 } from 'lucide-react'
 
 interface GoJSEditorProps {
@@ -64,23 +64,32 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
 
   // Selection tracking
   const [selectedTableKey, setSelectedTableKey] = useState<string>('USERS')
+  const [selectedLinkInfo, setSelectedLinkInfo] = useState<{ from: string; to: string } | null>(null)
   const [availableTables, setAvailableTables] = useState<string[]>(['USERS', 'PROJECTS', 'DIAGRAMS'])
+  const [availableLinks, setAvailableLinks] = useState<{ from: string; to: string; text?: string }[]>([
+    { from: 'USERS', to: 'PROJECTS', text: '1 : N' },
+    { from: 'PROJECTS', to: 'DIAGRAMS', text: '1 : N' },
+  ])
 
   // Modals state
   const [isAddTableOpen, setIsAddTableOpen] = useState(false)
   const [newTableName, setNewTableName] = useState('')
 
-  const [isAddFieldOpen, setIsAddFieldOpen] = useState(false)
-  const [targetTableForField, setTargetTableForField] = useState('USERS')
+  // Column / Field Manager Modal
+  const [isColumnManagerOpen, setIsColumnManagerOpen] = useState(false)
+  const [targetTableForColumns, setTargetTableForColumns] = useState('USERS')
+  const [tableColumns, setTableColumns] = useState<{ name: string; iskey: boolean; color?: string }[]>([])
   const [newFieldName, setNewFieldName] = useState('')
   const [newFieldIsKey, setNewFieldIsKey] = useState(false)
 
-  const [isAddLinkOpen, setIsAddLinkOpen] = useState(false)
+  // Relationship Manager Modal
+  const [isRelationshipManagerOpen, setIsRelationshipManagerOpen] = useState(false)
   const [linkFrom, setLinkFrom] = useState('')
   const [linkTo, setLinkTo] = useState('')
   const [linkType, setLinkType] = useState('1 : N')
 
-  const [isDeleteOpen, setIsDeleteOpen] = useState(false)
+  // Delete Table Modal
+  const [isDeleteTableOpen, setIsDeleteTableOpen] = useState(false)
   const [tableToDelete, setTableToDelete] = useState('USERS')
 
   // Helper to extract clean state and notify parent
@@ -93,11 +102,35 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
     const tableKeys = nodes.map((n) => String(n.key || ''))
     setAvailableTables(tableKeys)
 
+    const mappedLinks = links.map((l: { from?: string; to?: string; text?: string }) => ({
+      from: String(l.from || ''),
+      to: String(l.to || ''),
+      text: String(l.text || ''),
+    }))
+    setAvailableLinks(mappedLinks)
+
+    // Update active table columns
+    const activeNode = nodes.find((n) => String(n.key) === targetTableForColumns)
+    if (activeNode && Array.isArray(activeNode.items)) {
+      setTableColumns(activeNode.items)
+    }
+
     if (onChange) {
       onChange({
         nodeDataArray: nodes,
         linkDataArray: links,
       })
+    }
+  }
+
+  // Load columns for a given table
+  const refreshColumnsForTable = (tableKey: string) => {
+    if (!myDiagramRef.current) return
+    const node = myDiagramRef.current.findNodeForKey(tableKey)
+    if (node && node.data && Array.isArray(node.data.items)) {
+      setTableColumns([...node.data.items])
+    } else {
+      setTableColumns([])
     }
   }
 
@@ -113,6 +146,12 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
         linkKeyProperty: 'key',
       }),
     })
+
+    // Enable keyboard Delete & Backspace directly on canvas
+    myDiagram.commandHandler.deleteSelection = function () {
+      go.CommandHandler.prototype.deleteSelection.call(this)
+      syncModelChange()
+    }
 
     // Item template for attributes
     const itemTemplate = $(
@@ -216,10 +255,22 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
 
     const tableKeys = initialNodes.map((n) => String(n.key || ''))
     setAvailableTables(tableKeys)
+
+    const mappedLinks = initialLinks.map((l: { from?: string; to?: string; text?: string }) => ({
+      from: String(l.from || ''),
+      to: String(l.to || ''),
+      text: String(l.text || ''),
+    }))
+    setAvailableLinks(mappedLinks)
+
     if (tableKeys.length > 0) {
       setSelectedTableKey(tableKeys[0])
-      setTargetTableForField(tableKeys[0])
+      setTargetTableForColumns(tableKeys[0])
       setTableToDelete(tableKeys[0])
+      const first = initialNodes[0]
+      if (first && Array.isArray(first.items)) {
+        setTableColumns([...first.items])
+      }
     }
 
     // Keep track of active selection on canvas
@@ -228,12 +279,23 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
       if (sel instanceof go.Node && sel.data) {
         const k = String(sel.data.key || '')
         setSelectedTableKey(k)
-        setTargetTableForField(k)
+        setSelectedLinkInfo(null)
+        setTargetTableForColumns(k)
         setTableToDelete(k)
+        if (Array.isArray(sel.data.items)) {
+          setTableColumns([...sel.data.items])
+        }
+      } else if (sel instanceof go.Link && sel.data) {
+        setSelectedLinkInfo({
+          from: String(sel.data.from || ''),
+          to: String(sel.data.to || ''),
+        })
+      } else {
+        setSelectedLinkInfo(null)
       }
     })
 
-    // Listen to changes (e.g. dragging or manual edits)
+    // Listen to changes
     myDiagram.addModelChangedListener((e) => {
       if (e.isTransactionFinished) {
         syncModelChange()
@@ -256,7 +318,6 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
     const myDiagram = myDiagramRef.current
     const model = myDiagram.model as go.GraphLinksModel
 
-    // Ensure unique name
     let finalName = name
     let counter = 1
     while (model.findNodeDataForKey(finalName)) {
@@ -276,31 +337,31 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
     model.addNodeData(newNode)
     myDiagram.commitTransaction('add table')
 
-    // Select the new node
     const createdNode = myDiagram.findNodeForKey(finalName)
     if (createdNode) {
       myDiagram.select(createdNode)
     }
 
     setSelectedTableKey(finalName)
-    setTargetTableForField(finalName)
+    setTargetTableForColumns(finalName)
+    setTableToDelete(finalName)
     setNewTableName('')
     setIsAddTableOpen(false)
     syncModelChange()
   }
 
-  // 2. ADD COLUMN / FIELD TO SPECIFIC TABLE
-  const handleAddField = (e: React.FormEvent) => {
+  // 2. ADD COLUMN / FIELD
+  const handleAddColumn = (e: React.FormEvent) => {
     e.preventDefault()
     const field = newFieldName.trim()
-    const targetKey = targetTableForField || selectedTableKey
+    const targetKey = targetTableForColumns || selectedTableKey
     if (!field || !targetKey || !myDiagramRef.current) return
 
     const myDiagram = myDiagramRef.current
     const targetNode = myDiagram.findNodeForKey(targetKey)
 
     if (targetNode && targetNode.data) {
-      myDiagram.startTransaction('add field')
+      myDiagram.startTransaction('add column')
       const existingItems = Array.isArray(targetNode.data.items) ? targetNode.data.items : []
       const updatedItems = [
         ...existingItems,
@@ -312,16 +373,36 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
         },
       ]
       myDiagram.model.setDataProperty(targetNode.data, 'items', updatedItems)
-      myDiagram.commitTransaction('add field')
+      myDiagram.commitTransaction('add column')
+      setTableColumns(updatedItems)
     }
 
     setNewFieldName('')
     setNewFieldIsKey(false)
-    setIsAddFieldOpen(false)
     syncModelChange()
   }
 
-  // 3. ADD RELATIONSHIP BETWEEN TABLES
+  // 3. DELETE SPECIFIC COLUMN FROM TABLE
+  const handleDeleteColumn = (colName: string) => {
+    const targetKey = targetTableForColumns || selectedTableKey
+    if (!targetKey || !myDiagramRef.current) return
+
+    const myDiagram = myDiagramRef.current
+    const targetNode = myDiagram.findNodeForKey(targetKey)
+
+    if (targetNode && targetNode.data) {
+      myDiagram.startTransaction('delete column')
+      const existingItems = Array.isArray(targetNode.data.items) ? targetNode.data.items : []
+      const updatedItems = existingItems.filter((col: { name: string }) => col.name !== colName)
+      myDiagram.model.setDataProperty(targetNode.data, 'items', updatedItems)
+      myDiagram.commitTransaction('delete column')
+      setTableColumns(updatedItems)
+    }
+
+    syncModelChange()
+  }
+
+  // 4. ADD RELATIONSHIP BETWEEN TABLES
   const handleAddLink = (e: React.FormEvent) => {
     e.preventDefault()
     if (!linkFrom || !linkTo || !myDiagramRef.current) return
@@ -337,31 +418,61 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
     })
     myDiagram.commitTransaction('add relationship')
 
-    setIsAddLinkOpen(false)
+    setIsRelationshipManagerOpen(false)
     syncModelChange()
   }
 
-  // 4. DELETE TABLE / SELECTION
-  const handleConfirmDelete = () => {
+  // 5. DELETE SPECIFIC RELATIONSHIP
+  const handleDeleteLink = (from: string, to: string) => {
+    if (!myDiagramRef.current) return
+    const myDiagram = myDiagramRef.current
+    const model = myDiagram.model as go.GraphLinksModel
+
+    const links = model.linkDataArray as { from?: string; to?: string }[]
+    const targetLink = links.find((l) => l.from === from && l.to === to)
+
+    if (targetLink) {
+      myDiagram.startTransaction('delete relationship')
+      model.removeLinkData(targetLink)
+      myDiagram.commitTransaction('delete relationship')
+    }
+
+    setSelectedLinkInfo(null)
+    syncModelChange()
+  }
+
+  // 6. DELETE TABLE
+  const handleDeleteTable = (keyToDelete?: string) => {
+    if (!myDiagramRef.current) return
+    const myDiagram = myDiagramRef.current
+    const key = keyToDelete || tableToDelete || selectedTableKey
+
+    const node = myDiagram.findNodeForKey(key)
+    if (node) {
+      myDiagram.startTransaction('delete table')
+      myDiagram.remove(node)
+      myDiagram.commitTransaction('delete table')
+    }
+
+    setIsDeleteTableOpen(false)
+    syncModelChange()
+  }
+
+  // 7. DELETE WHATEVER IS CURRENTLY SELECTED
+  const handleDeleteSelected = () => {
     if (!myDiagramRef.current) return
     const myDiagram = myDiagramRef.current
 
-    myDiagram.startTransaction('delete table')
-
-    // Try deleting canvas selection first
     if (myDiagram.selection.count > 0) {
+      myDiagram.startTransaction('delete selection')
       myDiagram.commandHandler.deleteSelection()
-    } else {
-      // Fallback: delete chosen table by key
-      const key = tableToDelete || selectedTableKey
-      const node = myDiagram.findNodeForKey(key)
-      if (node) {
-        myDiagram.remove(node)
-      }
+      myDiagram.commitTransaction('delete selection')
+    } else if (selectedLinkInfo) {
+      handleDeleteLink(selectedLinkInfo.from, selectedLinkInfo.to)
+    } else if (selectedTableKey) {
+      handleDeleteTable(selectedTableKey)
     }
 
-    myDiagram.commitTransaction('delete table')
-    setIsDeleteOpen(false)
     syncModelChange()
   }
 
@@ -373,13 +484,17 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
           {diagramType.toUpperCase()} TOOLS:
         </span>
 
-        {/* Selected table indicator */}
+        {/* Selected indicator */}
         <div className="flex items-center gap-1 bg-gray-100 px-2 py-1 rounded-lg text-xs font-semibold text-gray-700 mr-1">
           <Database className="size-3 text-red-600" />
-          <span className="truncate max-w-28">{selectedTableKey || 'None'}</span>
+          <span className="truncate max-w-28">
+            {selectedLinkInfo
+              ? `${selectedLinkInfo.from} → ${selectedLinkInfo.to}`
+              : selectedTableKey || 'Select table'}
+          </span>
         </div>
 
-        {/* Add Entity Table */}
+        {/* 1. Add Table */}
         <button
           type="button"
           onClick={() => setIsAddTableOpen(true)}
@@ -387,59 +502,62 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
           title="Add a new database entity / table"
         >
           <Table className="size-3.5" />
-          <span>+ Add Entity / Table</span>
+          <span>+ Add Table</span>
         </button>
 
-        {/* Add Column */}
+        {/* 2. Columns & Fields Manager */}
         <button
           type="button"
           onClick={() => {
-            setTargetTableForField(selectedTableKey || availableTables[0] || '')
-            setIsAddFieldOpen(true)
+            const cur = selectedTableKey || availableTables[0] || 'USERS'
+            setTargetTableForColumns(cur)
+            refreshColumnsForTable(cur)
+            setIsColumnManagerOpen(true)
           }}
           className="flex items-center gap-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-2.5 py-1.5 text-xs font-semibold transition cursor-pointer border border-emerald-200"
-          title="Add a column / attribute to table"
+          title="Add or delete columns in a specific table"
         >
-          <Plus className="size-3.5" />
-          <span>+ Add Column</span>
+          <Columns className="size-3.5" />
+          <span>Columns &amp; Fields</span>
         </button>
 
-        {/* Add Relationship */}
+        {/* 3. Relationships Manager */}
         <button
           type="button"
           onClick={() => {
             if (availableTables.length >= 2) {
               setLinkFrom(availableTables[0])
               setLinkTo(availableTables[1])
-            } else if (availableTables.length === 1) {
-              setLinkFrom(availableTables[0])
-              setLinkTo(availableTables[0])
             }
-            setIsAddLinkOpen(true)
+            setIsRelationshipManagerOpen(true)
           }}
           className="flex items-center gap-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-700 px-2.5 py-1.5 text-xs font-semibold transition cursor-pointer border border-purple-200"
-          title="Connect tables with 1:N, 1:1, or N:M"
+          title="Manage & delete relationships between tables"
         >
           <LinkIcon className="size-3.5" />
-          <span>+ Add Relationship</span>
+          <span>Relationships ({availableLinks.length})</span>
         </button>
 
-        {/* Delete */}
+        {/* 4. Delete Table / Selected */}
         <button
           type="button"
           onClick={() => {
-            setTableToDelete(selectedTableKey || availableTables[0] || '')
-            setIsDeleteOpen(true)
+            if (myDiagramRef.current?.selection.count || selectedLinkInfo) {
+              handleDeleteSelected()
+            } else {
+              setTableToDelete(selectedTableKey || availableTables[0] || '')
+              setIsDeleteTableOpen(true)
+            }
           }}
           className="flex items-center gap-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 px-2.5 py-1.5 text-xs font-semibold transition cursor-pointer border border-red-200"
-          title="Delete table or relationship"
+          title="Delete selected table, column, or link"
         >
           <Trash2 className="size-3.5" />
           <span>Delete</span>
         </button>
       </div>
 
-      {/* ── Modal: Add Table ───────────────────────────────────── */}
+      {/* ── MODAL 1: Add Table ─────────────────────────────────── */}
       {isAddTableOpen && (
         <div className="absolute top-16 left-4 z-30 w-80 bg-white/95 backdrop-blur-md rounded-2xl border border-gray-200 shadow-xl p-4 animate-in fade-in zoom-in-95">
           <div className="flex items-center justify-between pb-2 border-b border-gray-100 mb-3">
@@ -458,20 +576,17 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
           <form onSubmit={handleAddTable} className="space-y-3">
             <div>
               <label className="block text-[11px] font-semibold text-gray-600 mb-1">
-                Entity / Table Name
+                Table Name (e.g. ORDERS, INVOICES, PRODUCTS)
               </label>
               <input
                 type="text"
                 autoFocus
                 required
-                placeholder="ORDERS, INVOICES, PRODUCTS..."
+                placeholder="ORDERS"
                 value={newTableName}
                 onChange={(e) => setNewTableName(e.target.value)}
                 className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-900 focus:border-red-600 focus:outline-none uppercase"
               />
-              <span className="text-[10px] text-gray-400 mt-1 block">
-                Will be created with default `id (PK)` and `name` attributes.
-              </span>
             </div>
 
             <div className="flex items-center justify-end gap-2 pt-1">
@@ -484,7 +599,7 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
               </button>
               <button
                 type="submit"
-                className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white shadow-2xs hover:bg-red-700 transition cursor-pointer"
+                className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-2xs hover:bg-blue-700 transition cursor-pointer"
               >
                 Create Table
               </button>
@@ -493,32 +608,35 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
         </div>
       )}
 
-      {/* ── Modal: Add Column / Field ──────────────────────────── */}
-      {isAddFieldOpen && (
-        <div className="absolute top-16 left-28 z-30 w-84 bg-white/95 backdrop-blur-md rounded-2xl border border-gray-200 shadow-xl p-4 animate-in fade-in zoom-in-95">
+      {/* ── MODAL 2: Column & Field Manager (Add & Delete specific columns) ─── */}
+      {isColumnManagerOpen && (
+        <div className="absolute top-16 left-12 z-30 w-96 bg-white/95 backdrop-blur-md rounded-2xl border border-gray-200 shadow-2xl p-5 animate-in fade-in zoom-in-95">
           <div className="flex items-center justify-between pb-2 border-b border-gray-100 mb-3">
             <div className="flex items-center gap-1.5">
-              <Plus className="size-3.5 text-emerald-600" />
-              <span className="text-xs font-bold text-gray-800">Add Column to Table</span>
+              <Columns className="size-4 text-emerald-600" />
+              <span className="text-sm font-bold text-gray-800">Manage Columns &amp; Fields</span>
             </div>
             <button
-              onClick={() => setIsAddFieldOpen(false)}
+              onClick={() => setIsColumnManagerOpen(false)}
               className="text-gray-400 hover:text-gray-600 rounded p-1 cursor-pointer"
             >
-              <X className="size-3.5" />
+              <X className="size-4" />
             </button>
           </div>
 
-          <form onSubmit={handleAddField} className="space-y-3">
+          <div className="space-y-4">
             {/* Target Table Dropdown */}
             <div>
               <label className="block text-[11px] font-semibold text-gray-600 mb-1">
-                Target Table
+                Select Table to Edit
               </label>
               <select
-                value={targetTableForField}
-                onChange={(e) => setTargetTableForField(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs text-gray-900 focus:border-red-600 focus:outline-none"
+                value={targetTableForColumns}
+                onChange={(e) => {
+                  setTargetTableForColumns(e.target.value)
+                  refreshColumnsForTable(e.target.value)
+                }}
+                className="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs font-bold text-gray-900 focus:border-emerald-600 focus:outline-none"
               >
                 {availableTables.map((t) => (
                   <option key={t} value={t}>
@@ -528,137 +646,210 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
               </select>
             </div>
 
-            {/* Column Name */}
+            {/* List of Current Columns with Delete button for each */}
             <div>
-              <label className="block text-[11px] font-semibold text-gray-600 mb-1">
-                Column Name (e.g. status, amount, user_id)
+              <span className="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">
+                Current Columns in {targetTableForColumns} ({tableColumns.length}):
+              </span>
+              <div className="max-h-36 overflow-y-auto space-y-1 rounded-xl border border-gray-200 bg-gray-50/60 p-2">
+                {tableColumns.length === 0 ? (
+                  <p className="text-xs text-gray-400 text-center py-2">No columns in this table</p>
+                ) : (
+                  tableColumns.map((col) => (
+                    <div
+                      key={col.name}
+                      className="flex items-center justify-between bg-white px-2.5 py-1.5 rounded-lg border border-gray-100 shadow-2xs text-xs"
+                    >
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span
+                          className={`size-2 rounded-full ${
+                            col.iskey ? 'bg-red-500' : 'bg-blue-500'
+                          }`}
+                        />
+                        <span className="font-semibold text-gray-800 truncate">{col.name}</span>
+                        {col.iskey && (
+                          <span className="text-[9px] font-bold text-red-600 bg-red-50 border border-red-200 px-1 py-0.2 rounded">
+                            PK
+                          </span>
+                        )}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteColumn(col.name)}
+                        className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1 rounded transition cursor-pointer"
+                        title={`Delete column "${col.name}" from ${targetTableForColumns}`}
+                      >
+                        <Trash2 className="size-3" />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Form to Add New Column */}
+            <form onSubmit={handleAddColumn} className="pt-2 border-t border-gray-100 space-y-2.5">
+              <span className="block text-[10px] font-bold uppercase tracking-wider text-gray-500">
+                + Add New Column to {targetTableForColumns}
+              </span>
+
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  required
+                  placeholder="Column name (e.g. status, total)..."
+                  value={newFieldName}
+                  onChange={(e) => setNewFieldName(e.target.value)}
+                  className="flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-900 focus:border-emerald-600 focus:outline-none"
+                />
+
+                <button
+                  type="submit"
+                  className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-2xs hover:bg-emerald-700 transition cursor-pointer shrink-0"
+                >
+                  + Add
+                </button>
+              </div>
+
+              <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={newFieldIsKey}
+                  onChange={(e) => setNewFieldIsKey(e.target.checked)}
+                  className="rounded text-red-600 focus:ring-red-500"
+                />
+                <span>Primary Key (PK)</span>
               </label>
-              <input
-                type="text"
-                autoFocus
-                required
-                placeholder="status"
-                value={newFieldName}
-                onChange={(e) => setNewFieldName(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-900 focus:border-red-600 focus:outline-none"
-              />
-            </div>
-
-            <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-700">
-              <input
-                type="checkbox"
-                checked={newFieldIsKey}
-                onChange={(e) => setNewFieldIsKey(e.target.checked)}
-                className="rounded text-red-600 focus:ring-red-500"
-              />
-              <span>Primary Key (PK)</span>
-            </label>
-
-            <div className="flex items-center justify-end gap-2 pt-1">
-              <button
-                type="button"
-                onClick={() => setIsAddFieldOpen(false)}
-                className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-2xs hover:bg-emerald-700 transition cursor-pointer"
-              >
-                Add Column
-              </button>
-            </div>
-          </form>
+            </form>
+          </div>
         </div>
       )}
 
-      {/* ── Modal: Add Relationship ────────────────────────────── */}
-      {isAddLinkOpen && (
-        <div className="absolute top-16 left-60 z-30 w-84 bg-white/95 backdrop-blur-md rounded-2xl border border-gray-200 shadow-xl p-4 animate-in fade-in zoom-in-95">
+      {/* ── MODAL 3: Relationship Manager (Add & Delete specific relationships) ── */}
+      {isRelationshipManagerOpen && (
+        <div className="absolute top-16 left-36 z-30 w-96 bg-white/95 backdrop-blur-md rounded-2xl border border-gray-200 shadow-2xl p-5 animate-in fade-in zoom-in-95">
           <div className="flex items-center justify-between pb-2 border-b border-gray-100 mb-3">
             <div className="flex items-center gap-1.5">
-              <LinkIcon className="size-3.5 text-purple-600" />
-              <span className="text-xs font-bold text-gray-800">Add Table Relationship</span>
+              <LinkIcon className="size-4 text-purple-600" />
+              <span className="text-sm font-bold text-gray-800">Manage Relationships</span>
             </div>
             <button
-              onClick={() => setIsAddLinkOpen(false)}
+              onClick={() => setIsRelationshipManagerOpen(false)}
               className="text-gray-400 hover:text-gray-600 rounded p-1 cursor-pointer"
             >
-              <X className="size-3.5" />
+              <X className="size-4" />
             </button>
           </div>
 
-          <form onSubmit={handleAddLink} className="space-y-3">
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="block text-[11px] font-semibold text-gray-600 mb-1">From Table</label>
-                <select
-                  value={linkFrom}
-                  onChange={(e) => setLinkFrom(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-xs text-gray-900"
-                >
-                  {availableTables.map((t) => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-[11px] font-semibold text-gray-600 mb-1">To Table</label>
-                <select
-                  value={linkTo}
-                  onChange={(e) => setLinkTo(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-xs text-gray-900"
-                >
-                  {availableTables.map((t) => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
+          <div className="space-y-4">
+            {/* List of Active Relationships with Delete button */}
             <div>
-              <label className="block text-[11px] font-semibold text-gray-600 mb-1">Cardinality / Label</label>
-              <select
-                value={linkType}
-                onChange={(e) => setLinkType(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-xs text-gray-900"
-              >
-                <option value="1 : N">One to Many (1 : N)</option>
-                <option value="1 : 1">One to One (1 : 1)</option>
-                <option value="N : M">Many to Many (N : M)</option>
-              </select>
+              <span className="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">
+                Existing Relationships ({availableLinks.length}):
+              </span>
+              <div className="max-h-36 overflow-y-auto space-y-1.5 rounded-xl border border-gray-200 bg-gray-50/60 p-2">
+                {availableLinks.length === 0 ? (
+                  <p className="text-xs text-gray-400 text-center py-2">No relationships connecting tables</p>
+                ) : (
+                  availableLinks.map((link, idx) => (
+                    <div
+                      key={`${link.from}-${link.to}-${idx}`}
+                      className="flex items-center justify-between bg-white px-2.5 py-1.5 rounded-lg border border-gray-100 shadow-2xs text-xs"
+                    >
+                      <div className="flex items-center gap-1.5 font-semibold text-gray-800">
+                        <span className="text-blue-600">{link.from}</span>
+                        <span className="text-gray-400">──</span>
+                        <span className="text-[10px] font-bold text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-100">
+                          {link.text || 'relates'}
+                        </span>
+                        <span className="text-gray-400">──&gt;</span>
+                        <span className="text-emerald-600">{link.to}</span>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteLink(link.from, link.to)}
+                        className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1 rounded transition cursor-pointer"
+                        title={`Delete relationship between ${link.from} and ${link.to}`}
+                      >
+                        <Trash2 className="size-3" />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-1">
-              <button
-                type="button"
-                onClick={() => setIsAddLinkOpen(false)}
-                className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="rounded-lg bg-purple-600 px-3 py-1.5 text-xs font-semibold text-white shadow-2xs hover:bg-purple-700 transition cursor-pointer"
-              >
-                Connect Tables
-              </button>
-            </div>
-          </form>
+            {/* Form to Add New Relationship */}
+            <form onSubmit={handleAddLink} className="pt-2 border-t border-gray-100 space-y-2.5">
+              <span className="block text-[10px] font-bold uppercase tracking-wider text-gray-500">
+                + Create New Relationship
+              </span>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[11px] font-semibold text-gray-600 mb-1">From Table</label>
+                  <select
+                    value={linkFrom}
+                    onChange={(e) => setLinkFrom(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900"
+                  >
+                    {availableTables.map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-gray-600 mb-1">To Table</label>
+                  <select
+                    value={linkTo}
+                    onChange={(e) => setLinkTo(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900"
+                  >
+                    {availableTables.map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-gray-600 mb-1">Cardinality</label>
+                <select
+                  value={linkType}
+                  onChange={(e) => setLinkType(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900"
+                >
+                  <option value="1 : N">One to Many (1 : N)</option>
+                  <option value="1 : 1">One to One (1 : 1)</option>
+                  <option value="N : M">Many to Many (N : M)</option>
+                </select>
+              </div>
+
+              <div className="flex justify-end pt-1">
+                <button
+                  type="submit"
+                  className="rounded-lg bg-purple-600 px-4 py-1.5 text-xs font-semibold text-white shadow-2xs hover:bg-purple-700 transition cursor-pointer"
+                >
+                  Connect Tables
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 
-      {/* ── Modal: Delete Confirmation ─────────────────────────── */}
-      {isDeleteOpen && (
-        <div className="absolute top-16 left-80 z-30 w-80 bg-white/95 backdrop-blur-md rounded-2xl border border-gray-200 shadow-xl p-4 animate-in fade-in zoom-in-95">
+      {/* ── MODAL 4: Delete Table Confirmation ─────────────────── */}
+      {isDeleteTableOpen && (
+        <div className="absolute top-16 left-60 z-30 w-80 bg-white/95 backdrop-blur-md rounded-2xl border border-gray-200 shadow-xl p-4 animate-in fade-in zoom-in-95">
           <div className="flex items-center justify-between pb-2 border-b border-gray-100 mb-3">
             <div className="flex items-center gap-1.5">
               <Trash2 className="size-3.5 text-red-600" />
-              <span className="text-xs font-bold text-gray-800">Delete Entity or Link</span>
+              <span className="text-xs font-bold text-gray-800">Delete Entire Table</span>
             </div>
             <button
-              onClick={() => setIsDeleteOpen(false)}
+              onClick={() => setIsDeleteTableOpen(false)}
               className="text-gray-400 hover:text-gray-600 rounded p-1 cursor-pointer"
             >
               <X className="size-3.5" />
@@ -666,38 +857,41 @@ export function GoJSEditor({ initialData, diagramType = 'erd', onChange }: GoJSE
           </div>
 
           <div className="space-y-3">
-            <p className="text-xs text-gray-600">
-              Select which table or element you want to delete:
-            </p>
-
             <div>
+              <label className="block text-[11px] font-semibold text-gray-600 mb-1">
+                Select Table to Remove:
+              </label>
               <select
                 value={tableToDelete}
                 onChange={(e) => setTableToDelete(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs text-gray-900"
+                className="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs font-bold text-gray-900"
               >
                 {availableTables.map((t) => (
                   <option key={t} value={t}>
-                    Delete Table: {t}
+                    Delete: {t}
                   </option>
                 ))}
               </select>
             </div>
 
+            <p className="text-[11px] text-red-600">
+              This will remove the table and all its relationships from the ERD.
+            </p>
+
             <div className="flex items-center justify-end gap-2 pt-1">
               <button
                 type="button"
-                onClick={() => setIsDeleteOpen(false)}
+                onClick={() => setIsDeleteTableOpen(false)}
                 className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="button"
-                onClick={handleConfirmDelete}
+                onClick={() => handleDeleteTable(tableToDelete)}
                 className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white shadow-2xs hover:bg-red-700 transition cursor-pointer"
               >
-                Delete Now
+                Delete Table
               </button>
             </div>
           </div>
